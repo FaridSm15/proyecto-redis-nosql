@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Carrito en la Nube - Redis Cloud</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f6f8;
+      color: #222;
+      max-width: 750px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    .card {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      margin-bottom: 20px;
+    }
+    h1 { font-size: 22px; margin-bottom: 5px; }
+    .sub { color: #666; font-size: 14px; margin-bottom: 20px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    input {
+      padding: 8px 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      font-size: 14px;
+      flex: 1;
+    }
+    button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+      background-color: #0066cc;
+      color: white;
+    }
+    button:hover { background-color: #0052a3; }
+    button.sec { background-color: #28a745; }
+    button.sec:hover { background-color: #218838; }
+    button.del { background-color: #dc3545; }
+    button.del:hover { background-color: #c82333; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    .ttl-box {
+      background: #eef6ff;
+      border-left: 4px solid #0066cc;
+      padding: 10px 14px;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h1>Carrito de Compras Temporal (Redis Cloud)</h1>
+    <div class="sub">Modelo NoSQL Clave-Valor (Hash + Expiración TTL en la Nube)</div>
+
+    <div class="row">
+      <input type="text" id="usuario" value="usuario_demo" placeholder="ID de usuario (ej. usuario_demo)" />
+      <button onclick="cargarCarrito()">Cargar Carrito (GET)</button>
+      <button class="sec" onclick="renovarTTL()">Renovar Tiempo (EXPIRE)</button>
+      <button class="del" onclick="vaciarCarrito()">Vaciar Todo (DEL)</button>
+    </div>
+
+    <div class="ttl-box" id="ttlInfo">Tiempo de vida restante (TTL): -- segundos</div>
+  </div>
+
+  <div class="card">
+    <h3>Agregar / Actualizar Producto (HSET)</h3>
+    <div class="row">
+      <input type="text" id="nombre" placeholder="Nombre (ej. Teclado Mecánico)" />
+      <input type="number" id="precio" placeholder="Precio (ej. 1200)" />
+      <input type="number" id="cantidad" placeholder="Cantidad (ej. 1)" />
+      <button onclick="guardarProducto()">Guardar</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Productos en Redis Cloud</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Precio</th>
+          <th>Cantidad</th>
+          <th>Subtotal</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody id="tablaProductos">
+        <tr><td colspan="5">Cargando datos...</td></tr>
+      </tbody>
+    </table>
+    <h4 id="totalTexto" style="text-align:right; margin-top:15px;">Total: $0.00</h4>
+  </div>
+
+  <script>
+    let ttlActual = -1;
+
+    async function cargarCarrito() {
+      const usuario = document.getElementById('usuario').value.trim() || 'usuario_demo';
+      const res = await fetch(`/api/carrito/${usuario}`);
+      const data = await res.json();
+
+      ttlActual = data.ttl;
+      actualizarTextoTTL();
+
+      const tbody = document.getElementById('tablaProductos');
+      tbody.innerHTML = '';
+      let total = 0;
+
+      if (!data.productos || data.productos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5">El carrito está vacío o ya expiró en Redis Cloud.</td></tr>';
+        document.getElementById('totalTexto').innerText = 'Total: $0.00';
+        return;
+      }
+
+      data.productos.forEach(p => {
+        const sub = p.precio * p.cantidad;
+        total += sub;
+        tbody.innerHTML += `
+          <tr>
+            <td>${p.nombre}</td>
+            <td>$${p.precio}</td>
+            <td>${p.cantidad}</td>
+            <td>$${sub}</td>
+            <td><button class="del" onclick="eliminarProducto('${p.nombre}')">Quitar</button></td>
+          </tr>
+        `;
+      });
+
+      document.getElementById('totalTexto').innerText = `Total: $${total.toFixed(2)}`;
+    }
+
+    async function guardarProducto() {
+      const usuario = document.getElementById('usuario').value.trim() || 'usuario_demo';
+      const nombre = document.getElementById('nombre').value.trim();
+      const precio = document.getElementById('precio').value;
+      const cantidad = document.getElementById('cantidad').value;
+
+      if (!nombre || !precio || !cantidad) return alert('Completa todos los campos');
+
+      await fetch(`/api/carrito/${usuario}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, precio, cantidad })
+      });
+
+      document.getElementById('nombre').value = '';
+      document.getElementById('precio').value = '';
+      document.getElementById('cantidad').value = '';
+      cargarCarrito();
+    }
+
+    async function eliminarProducto(nombre) {
+      const usuario = document.getElementById('usuario').value.trim() || 'usuario_demo';
+      await fetch(`/api/carrito/${usuario}/${encodeURIComponent(nombre)}`, { method: 'DELETE' });
+      cargarCarrito();
+    }
+
+    async function vaciarCarrito() {
+      const usuario = document.getElementById('usuario').value.trim() || 'usuario_demo';
+      await fetch(`/api/carrito/${usuario}`, { method: 'DELETE' });
+      cargarCarrito();
+    }
+
+    async function renovarTTL() {
+      const usuario = document.getElementById('usuario').value.trim() || 'usuario_demo';
+      const res = await fetch(`/api/carrito/${usuario}/renovar`, { method: 'PUT' });
+      if (res.ok) cargarCarrito();
+      else alert('El carrito no existe o ya expiró.');
+    }
+
+    function actualizarTextoTTL() {
+      const box = document.getElementById('ttlInfo');
+      if (ttlActual > 0) {
+        box.innerText = `Tiempo de vida restante (TTL): ${ttlActual} segundos (se autodestruye en Redis Cloud al llegar a 0)`;
+      } else {
+        box.innerText = 'Tiempo de vida restante (TTL): Clave inexistente o expirada';
+      }
+    }
+
+    // Contador visual en vivo cada segundo
+    setInterval(() => {
+      if (ttlActual > 0) {
+        ttlActual--;
+        actualizarTextoTTL();
+      }
+    }, 1000);
+
+    // Cargar al abrir la página
+    cargarCarrito();
+  </script>
+</body>
+</html>
